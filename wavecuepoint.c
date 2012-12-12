@@ -7,7 +7,7 @@
 // This function reads a .wav file and a text file containing marker locations (specified as frame indexes, one per line)
 // and creates a new .wav file with embedded cue points for each location.  The code is standard, portable C.
 //
-// For a full description see http://bleepsandpops.com/
+// For a full description see http://bleepsandpops.com/post/37792760450/adding-cue-points-to-wav-files-in-c
 //
 // THIS CODE IS GIVEN TO THE PUBLIC DOMAIN
 //
