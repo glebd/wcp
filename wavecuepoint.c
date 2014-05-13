@@ -106,22 +106,22 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
 	int returnCode = 0;
 	
 	// Prepare some variables to hold data read from the input file
-	FILE				 *inputFile				= NULL;
-	WaveHeader			 *waveHeader			= NULL;
-	FormatChunk			 *formatChunk			= NULL;
-	ChunkLocation		 formatChunkExtraBytes  = {0,0};
-	CueChunk			 existingCueChunk		= {{0}};
-	existingCueChunk.cuePoints					= NULL;
-	ChunkLocation		 dataChunkLocation		= {0,0};
-	const int			 maxOtherChunks			= 256;   // How many other chunks can we expect to find?  Who knows! So lets pull 256 out of the air.  That's a nice computery number.
-	int					 otherChunksCount		= 0;
-	ChunkLocation		 otherChunkLocations[maxOtherChunks];
+	FILE            *inputFile            = NULL;
+	WaveHeader      *waveHeader           = NULL;
+	FormatChunk     *formatChunk          = NULL;
+	ChunkLocation   formatChunkExtraBytes = {0,0};
+	CueChunk        existingCueChunk      = {{0}};
+	existingCueChunk.cuePoints            = NULL;
+	ChunkLocation   dataChunkLocation     = {0,0};
+	const int       maxOtherChunks        = 256;   // How many other chunks can we expect to find?  Who knows! So lets pull 256 out of the air.  That's a nice computery number.
+	int             otherChunksCount      = 0;
+	ChunkLocation   otherChunkLocations[maxOtherChunks];
 	
-	FILE				 *markersFile			= NULL;
-	CuePoint			 *cuePoints				= NULL;
-	CueChunk			 cueChunk				= {{0}};
+	FILE            *markersFile          = NULL;
+	CuePoint        *cuePoints            = NULL;
+	CueChunk        cueChunk              = {{0}};
 	
-	FILE				 *outputFile			= NULL;
+	FILE            *outputFile           = NULL;
 	
 	
 	
