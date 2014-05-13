@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 // Some Structs that we use to represent and manipulate Chunks in the Wave files
 
@@ -114,7 +115,7 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
 	ChunkLocation		 dataChunkLocation		= {0,0};
 	const int			 maxOtherChunks			= 256;   // How many other chunks can we expect to find?  Who knows! So lets pull 256 out of the air.  That's a nice computery number.
 	int					 otherChunksCount		= 0;
-	ChunkLocation		 otherChunkLocations[maxOtherChunks] = {{0}};
+	ChunkLocation		 otherChunkLocations[maxOtherChunks];
 	
 	FILE				 *markersFile			= NULL;
 	CuePoint			 *cuePoints				= NULL;
