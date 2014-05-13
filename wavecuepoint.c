@@ -14,6 +14,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdio.h>
 
 // Some Structs that we use to represent and manipulate Chunks in the Wave files
 
