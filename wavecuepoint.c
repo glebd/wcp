@@ -1,6 +1,7 @@
 //
 // wavecuepoint.c
 // Created by Jim McGowan on 29/11/12.
+// Turned into command-line utility by David Hilowitz on 19/11/16.
 // jim@bleepsandpops.com
 // jim@malkinware.com
 //
@@ -16,6 +17,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+#include <ctype.h>
+#include <unistd.h>
 
 // Some Structs that we use to represent and manipulate Chunks in the Wave files
 
@@ -139,7 +143,7 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
 	markersFile = fopen(markerFilePath, "rb");
 	if (markersFile == NULL)
 	{
-		fprintf(stderr, "Could not open marker file %s\n", inFilePath);
+		fprintf(stderr, "Could not open marker file %s\n", markerFilePath);
 		returnCode = -1;
 		goto CleanUpAndExit;
 	}
@@ -391,9 +395,6 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
 		goto CleanUpAndExit;
 	}
 	
-	
-	
-	
 	// Read in the Markers File
 	fprintf(stdout, "Reading markers file.\n");
     
@@ -406,7 +407,7 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
 		char cueLocationString[11] = {0}; // Max Value for a 32 bit int is 4,294,967,295, i.e. 10 numeric digits, so char[11] should be enough storage for all the digits in a line + a terminator (\0).
 		int charIndex = 0;
 		
-		// Loop through each line int the markers file
+		// Loop through each line in the markers file
 		while (1)
 		{
 			char nextChar = fgetc(markersFile);
@@ -863,4 +864,51 @@ void uint16ToLittleEndianBytes(uint16_t uInt16Value, char out_LittleEndianBytes[
 		out_LittleEndianBytes[0] = uintValueBytes[1];
 		out_LittleEndianBytes[1] = uintValueBytes[0];
 	}
+}
+
+
+int main (int argc, char **argv)
+{
+  enum CuePointMergingOption mflag = ReplaceAnyExistingCuePoints;
+  char *inFilePath = NULL; 
+  char *markerFilePath = NULL; 
+  char *outFilePath = NULL;
+  int index;
+  int c;
+
+  opterr = 0;
+  while ((c = getopt (argc, argv, "m")) != -1)
+    switch (c)
+      {
+      case 'm':
+        mflag = MergeWithAnyExistingCuePoints;
+        break;
+      case '?':
+        if (isprint (optopt))
+          fprintf (stderr, "Unknown option `-%c'.\n", optopt);
+        else
+          fprintf (stderr,
+                   "Unknown option character `\\x%x'.\n",
+                   optopt);
+        return 1;
+      default:
+        abort ();
+      }
+ 
+ 
+  if((argc - optind) != 3) {
+  	printf("Usage: wavecuepoint [-r] WAVFILE MARKERFILE OUTPUTFILE\nOptions:\n\t-r\tMerge any existing cue points (default is replace)");
+  	return 1;
+  }
+
+  
+  index = optind;
+  inFilePath = argv[index++];
+  markerFilePath = argv[index++];
+  outFilePath = argv[index++];
+
+  printf ("mflag = %d, inFilePath = %s, markerFilePath = %s, outFilePath = %s\n",
+          mflag, inFilePath, markerFilePath, outFilePath);
+
+  return addMarkersToWaveFile(inFilePath, markerFilePath, outFilePath, mflag);
 }
