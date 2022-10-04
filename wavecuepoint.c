@@ -897,7 +897,7 @@ int main (int argc, char **argv)
  
  
   if((argc - optind) != 3) {
-  	printf("Usage: wavecuepoint [-r] WAVFILE MARKERFILE OUTPUTFILE\nOptions:\n\t-r\tMerge any existing cue points (default is replace)");
+  	printf("Usage: wavecuepoint [-r] WAVFILE MARKERFILE OUTPUTFILE\nOptions:\n\t-r\tMerge any existing cue points (default is replace)\n");
   	return 1;
   }
 
