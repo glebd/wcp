@@ -21,6 +21,9 @@
 #include <ctype.h>
 #include <unistd.h>
 
+#define WAVE_FORMAT_PCM        0x0001
+#define WAVE_FORMAT_IEEE_FLOAT 0x0003
+
 // Some Structs that we use to represent and manipulate Chunks in the Wave files
 
 // The header of a wave file
@@ -239,7 +242,8 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
 				goto CleanUpAndExit;
 			}
 			
-			if (littleEndianBytesToUInt16(formatChunk->compressionCode) != (uint16_t)1)
+			uint16_t compressionCode = littleEndianBytesToUInt16(formatChunk->compressionCode);
+			if (compressionCode != WAVE_FORMAT_PCM && compressionCode != WAVE_FORMAT_IEEE_FLOAT)
 			{
 				fprintf(stderr, "Compressed audio formats are not supported\n");
 				returnCode = -1;
