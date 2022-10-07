@@ -510,7 +510,7 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
 	for (uint32_t i = 0; i < cueLocationsCount; i++)
 	{
 		uint32ToLittleEndianBytes(i + 1, cuePoints[i].cuePointID);
-		uint32ToLittleEndianBytes(0, cuePoints[i].playOrderPosition);
+		uint32ToLittleEndianBytes(cueLocations[i], cuePoints[i].playOrderPosition);
 		cuePoints[i].dataChunkID[0] = 'd';
 		cuePoints[i].dataChunkID[1] = 'a';
 		cuePoints[i].dataChunkID[2] = 't';
