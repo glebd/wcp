@@ -74,7 +74,11 @@ typedef struct {
     long size;        // in bytes
 } ChunkLocation;
 
-
+typedef struct {
+    uint32_t locations[1000];
+    int count;
+} CueLocations;
+CueLocations readCueLocationsFromMarkerFile(FILE *markerFile);
 
 // For such chunks that we will copy over from input to output, this function does that in 1MB pieces
 int writeChunkLocationFromInputFileToOutputFile(ChunkLocation chunk, FILE *inputFile, FILE *outputFile);
@@ -402,101 +406,21 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
     // Read in the Markers File
     fprintf(stdout, "Reading markers file.\n");
     
-    // The markers file should contain a locations for each marker (cue point), one location per line
-    uint32_t cueLocations[1000] = {0};
-    int cueLocationsCount = 0;
-
-    while (!feof(markersFile))
-    {
-        char cueLocationString[11] = {0}; // Max Value for a 32 bit int is 4,294,967,295, i.e. 10 numeric digits, so char[11] should be enough storage for all the digits in a line + a terminator (\0).
-        int charIndex = 0;
-
-        // Loop through each line in the markers file
-        while (1)
-        {
-            char nextChar = fgetc(markersFile);
-
-            // check for end of file
-            if (feof(markersFile))
-            {
-                cueLocationString[charIndex] = '\0';
-                break;
-            }
-
-            // check for end of line
-            if (nextChar == '\r')
-            {
-                // This is a Classic Mac line ending '\r' or the start of a Windows line ending '\r\n'
-                // If this is the start of a '\r\n', gobble up the '\n' too
-                char peekAheadChar = fgetc(markersFile);
-                if ((peekAheadChar != EOF) && (peekAheadChar != '\n'))
-                {
-                    ungetc(peekAheadChar, markersFile);
-                }
-
-                cueLocationString[charIndex] = '\0';
-                break;
-            }
-            if (nextChar == '\n')
-            {
-                // This is a Unix/ OS X line ending '\n'
-                cueLocationString[charIndex] = '\0';
-                break;
-            }
-
-
-            if ( (nextChar == '0') || (nextChar == '1') ||(nextChar == '2') ||(nextChar == '3') ||(nextChar == '4') ||(nextChar == '5') ||(nextChar == '6') ||(nextChar == '7') ||(nextChar == '8') ||(nextChar == '9'))
-            {
-                // This is a regular numeric character, if there are less than 10 digits in the cueLocationString, add this character.
-                // More than 10 digits is too much for a 32bit unsigned integer, so ignore this character and spin through the loop until we hit EOL or EOF
-                if (charIndex < 10)
-                {
-                    cueLocationString[charIndex] = nextChar;
-                    charIndex++;
-                }
-                else
-                {
-                    fprintf(stderr, "Line %d in marker file contains too many numeric digits (>10). Max value for a sample location is 4,294,967,295\n", cueLocationsCount + 1);
-                }
-            }
-            else
-            {
-                // This is an invalid character
-                fprintf(stderr, "Invalid character in marker file: \'%c\' at line %d column %d.  Ignoring this character\n", nextChar, cueLocationsCount + 1, charIndex + 1);
-            }
-        }
-
-
-        // Convert the digits from the line to a uint32 and add to cueLocations
-        if (strlen(cueLocationString) > 0)
-        {
-            long cueLocation_Long = strtol(cueLocationString, NULL, 10);
-            if (cueLocation_Long < UINT32_MAX)
-            {
-                cueLocations[cueLocationsCount] = (uint32_t)cueLocation_Long;
-                cueLocationsCount++;
-            }
-            else
-            {
-                fprintf(stderr, "Line %d in marker file contains a value larger than the max possible sample location value\n", cueLocationsCount + 1);
-            }
-        }
-    }
-
+    CueLocations cueLocations = readCueLocationsFromMarkerFile(markersFile);
 
     // Did we get any cueLocations?
-    if (cueLocationsCount < 1)
+    if (cueLocations.count < 1)
     {
         fprintf(stderr, "Did not find any cue point locations in the markers file\n");
         returnCode = -1;
         goto CleanUpAndExit;
     }
 
-    fprintf(stdout, "Read %d cue locations from markers file.\nPreparing new cue chunk.\n", cueLocationsCount);
+    fprintf(stdout, "Read %d cue locations from markers file.\nPreparing new cue chunk.\n", cueLocations.count);
 
 
     // Create CuePointStructs for each cue location
-    cuePoints = malloc(sizeof(CuePoint) * cueLocationsCount);
+    cuePoints = malloc(sizeof(CuePoint) * cueLocations.count);
     if (cuePoints == NULL)
     {
         fprintf(stderr, "Memory Allocation Error: Could not allocate memory for Cue Points data\n");
@@ -507,17 +431,17 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
     //    uint16_t bitsPerSample = littleEndianBytesToUInt16(formatChunk->significantBitsPerSample);
     //    uint16_t bytesPerSample = bitsPerSample / 8;
 
-    for (uint32_t i = 0; i < cueLocationsCount; i++)
+    for (uint32_t i = 0; i < cueLocations.count; i++)
     {
         uint32ToLittleEndianBytes(i + 1, cuePoints[i].cuePointID);
-        uint32ToLittleEndianBytes(cueLocations[i], cuePoints[i].playOrderPosition);
+        uint32ToLittleEndianBytes(cueLocations.locations[i], cuePoints[i].playOrderPosition);
         cuePoints[i].dataChunkID[0] = 'd';
         cuePoints[i].dataChunkID[1] = 'a';
         cuePoints[i].dataChunkID[2] = 't';
         cuePoints[i].dataChunkID[3] = 'a';
         uint32ToLittleEndianBytes(0, cuePoints[i].chunkStart);
         uint32ToLittleEndianBytes(0, cuePoints[i].blockStart);
-        uint32ToLittleEndianBytes(cueLocations[i], cuePoints[i].frameOffset);
+        uint32ToLittleEndianBytes(cueLocations.locations[i], cuePoints[i].frameOffset);
     }
 
 
@@ -533,8 +457,8 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
     cueChunk.chunkID[1] = 'u';
     cueChunk.chunkID[2] = 'e';
     cueChunk.chunkID[3] = ' ';
-    uint32ToLittleEndianBytes(4 + (sizeof(CuePoint) * cueLocationsCount), cueChunk.chunkDataSize);// See struct definition
-    uint32ToLittleEndianBytes(cueLocationsCount, cueChunk.cuePointsCount);
+    uint32ToLittleEndianBytes(4 + (sizeof(CuePoint) * cueLocations.count), cueChunk.chunkDataSize);// See struct definition
+    uint32ToLittleEndianBytes(cueLocations.count, cueChunk.cuePointsCount);
     cueChunk.cuePoints = cuePoints;
 
 
@@ -578,7 +502,7 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
     fileDataSize += 4; // 4 bytes for CueChunk ID "cue "
     fileDataSize += 4; // UInt32 for CueChunk.chunkDataSize
     fileDataSize += 4; // UInt32 for CueChunk.cuePointsCount
-    fileDataSize += (sizeof(CuePoint) * cueLocationsCount);
+    fileDataSize += (sizeof(CuePoint) * cueLocations.count);
 
     uint32ToLittleEndianBytes(fileDataSize, waveHeader->dataSize);
 
@@ -695,12 +619,98 @@ CleanUpAndExit:
 
 
 
+CueLocations readCueLocationsFromMarkerFile(FILE *markersFile)
+{
+    // The markers file should contain a locations for each marker (cue point), one location per line
+    CueLocations cueLocations = {
+        .locations = {0},
+        .count = 0
+    };
 
+    while (!feof(markersFile))
+    {
+        char cueLocationString[11] = {0}; // Max Value for a 32 bit int is 4,294,967,295, i.e. 10 numeric digits, so char[11] should be enough storage for all the digits in a line + a terminator (\0).
+        int charIndex = 0;
+
+        // Loop through each line in the markers file
+        while (1)
+        {
+            char nextChar = fgetc(markersFile);
+
+            // check for end of file
+            if (feof(markersFile))
+            {
+                cueLocationString[charIndex] = '\0';
+                break;
+            }
+
+            // check for end of line
+            if (nextChar == '\r')
+            {
+                // This is a Classic Mac line ending '\r' or the start of a Windows line ending '\r\n'
+                // If this is the start of a '\r\n', gobble up the '\n' too
+                char peekAheadChar = fgetc(markersFile);
+                if ((peekAheadChar != EOF) && (peekAheadChar != '\n'))
+                {
+                    ungetc(peekAheadChar, markersFile);
+                }
+
+                cueLocationString[charIndex] = '\0';
+                break;
+            }
+            if (nextChar == '\n')
+            {
+                // This is a Unix/ OS X line ending '\n'
+                cueLocationString[charIndex] = '\0';
+                break;
+            }
+
+
+            if ( (nextChar == '0') || (nextChar == '1') ||(nextChar == '2') ||(nextChar == '3') ||(nextChar == '4') ||(nextChar == '5') ||(nextChar == '6') ||(nextChar == '7') ||(nextChar == '8') ||(nextChar == '9'))
+            {
+                // This is a regular numeric character, if there are less than 10 digits in the cueLocationString, add this character.
+                // More than 10 digits is too much for a 32bit unsigned integer, so ignore this character and spin through the loop until we hit EOL or EOF
+                if (charIndex < 10)
+                {
+                    cueLocationString[charIndex] = nextChar;
+                    charIndex++;
+                }
+                else
+                {
+                    fprintf(stderr, "Line %d in marker file contains too many numeric digits (>10). Max value for a sample location is 4,294,967,295\n", cueLocations.count + 1);
+                }
+            }
+            else
+            {
+                // This is an invalid character
+                fprintf(stderr, "Invalid character in marker file: \'%c\' at line %d column %d.  Ignoring this character\n", nextChar, cueLocations.count + 1, charIndex + 1);
+            }
+        }
+
+
+        // Convert the digits from the line to a uint32 and add to cueLocations
+        if (strlen(cueLocationString) > 0)
+        {
+            long cueLocation_Long = strtol(cueLocationString, NULL, 10);
+            if (cueLocation_Long < UINT32_MAX)
+            {
+                cueLocations.locations[cueLocations.count] = (uint32_t)cueLocation_Long;
+                cueLocations.count++;
+            }
+            else
+            {
+                fprintf(stderr, "Line %d in marker file contains a value larger than the max possible sample location value\n", cueLocations.count + 1);
+            }
+        }
+    }
+
+    return cueLocations;
+}
 
 
 int writeChunkLocationFromInputFileToOutputFile(ChunkLocation chunk, FILE *inputFile, FILE *outputFile)
 {
-    // note the position of he input filr to restore later
+    // note the position of the input file to restore later
     long inputFileOrigLocation = ftell(inputFile);
 
     if (fseek(inputFile, chunk.startOffset, SEEK_SET) < 0)
