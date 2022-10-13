@@ -80,6 +80,8 @@ typedef struct {
 } CueLocations;
 CueLocations readCueLocationsFromMarkerFile(FILE *markerFile);
 
+int writeOutputFile(FILE *inputFile, FILE *outputFile, ChunkLocation formatChunkExtraBytes, ChunkLocation dataChunkLocation, int otherChunksCount, ChunkLocation *otherChunkLocations, CueLocations cueLocations, WaveHeader *waveHeader, FormatChunk *formatChunk, CueChunk cueChunk, CuePoint *cuePoints);
+
 // For such chunks that we will copy over from input to output, this function does that in 1MB pieces
 int writeChunkLocationFromInputFileToOutputFile(ChunkLocation chunk, FILE *inputFile, FILE *outputFile);
 
@@ -473,131 +475,10 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
         goto CleanUpAndExit;
     }
 
-    fprintf(stdout, "Writing output file.\n");
-
-    // Update the file header chunk to have the new data size
-    uint32_t fileDataSize = 0;
-    fileDataSize += 4; // the 4 bytes for the Riff Type "WAVE"
-    fileDataSize += sizeof(FormatChunk);
-    fileDataSize += formatChunkExtraBytes.size;
-    if (formatChunkExtraBytes.size % 2 != 0)
+    returnCode = writeOutputFile(inputFile, outputFile, formatChunkExtraBytes, dataChunkLocation, otherChunksCount, otherChunkLocations, cueLocations, waveHeader, formatChunk, cueChunk, cuePoints);
+    if (returnCode < 0)
     {
-        fileDataSize++; // Padding byte for 2byte alignment
-    }
-
-    fileDataSize += dataChunkLocation.size;
-    if (dataChunkLocation.size % 2 != 0)
-    {
-        fileDataSize++;
-    }
-
-    for (int i = 0; i < otherChunksCount; i++)
-    {
-        fileDataSize += otherChunkLocations[i].size;
-        if (otherChunkLocations[i].size % 2 != 0)
-        {
-            fileDataSize ++;
-        }
-    }
-    fileDataSize += 4; // 4 bytes for CueChunk ID "cue "
-    fileDataSize += 4; // UInt32 for CueChunk.chunkDataSize
-    fileDataSize += 4; // UInt32 for CueChunk.cuePointsCount
-    fileDataSize += (sizeof(CuePoint) * cueLocations.count);
-
-    uint32ToLittleEndianBytes(fileDataSize, waveHeader->dataSize);
-
-    // Write out the header to the new file
-    if (fwrite(waveHeader, sizeof(*waveHeader), 1, outputFile) < 1)
-    {
-        fprintf(stderr, "Error writing header to output file.\n");
-        returnCode = -1;
         goto CleanUpAndExit;
-    }
-
-
-    // Write out the format chunk
-    if (fwrite(formatChunk, sizeof(FormatChunk), 1, outputFile) < 1)
-    {
-        fprintf(stderr, "Error writing format chunk to output file.\n");
-        returnCode = -1;
-        goto CleanUpAndExit;
-    }
-    else if (formatChunkExtraBytes.size > 0)
-    {
-        if (writeChunkLocationFromInputFileToOutputFile(formatChunkExtraBytes, inputFile, outputFile) < 0)
-        {
-            returnCode = -1;
-            goto CleanUpAndExit;
-        }
-        if (formatChunkExtraBytes.size % 2 != 0)
-        {
-            if (fwrite("\0", sizeof(char), 1, outputFile) < 1)
-            {
-                fprintf(stderr, "Error writing padding character to output file.\n");
-                returnCode = -1;
-                goto CleanUpAndExit;
-
-            }
-        }
-    }
-
-
-    // Write out the start of new Cue Chunk: chunkID, dataSize and cuePointsCount
-    if (fwrite(&cueChunk, sizeof(cueChunk.chunkID) + sizeof(cueChunk.chunkDataSize)+ sizeof(cueChunk.cuePointsCount), 1, outputFile) < 1)
-    {
-        fprintf(stderr, "Error writing cue chunk header to output file.\n");
-        returnCode = -1;
-        goto CleanUpAndExit;
-    }
-
-    // Write out the Cue Points
-    for (uint32_t i = 0; i < littleEndianBytesToUInt32(cueChunk.cuePointsCount); i++)
-    {
-        if (fwrite(&(cuePoints[i]), sizeof(CuePoint), 1, outputFile) < 1)
-        {
-            fprintf(stderr, "Error writing cue point to output file.\n");
-            returnCode = -1;
-            goto CleanUpAndExit;
-        }
-    }
-
-
-    // Write out the other chunks from the input file
-    for (int i = 0; i < otherChunksCount; i++)
-    {
-        if (writeChunkLocationFromInputFileToOutputFile(otherChunkLocations[i], inputFile, outputFile) < 0)
-        {
-            returnCode = -1;
-            goto CleanUpAndExit;
-        }
-        if (otherChunkLocations[i].size % 2 != 0)
-        {
-            if (fwrite("\0", sizeof(char), 1, outputFile) < 1)
-            {
-                fprintf(stderr, "Error writing padding character to output file.\n");
-                returnCode = -1;
-                goto CleanUpAndExit;
-
-            }
-        }
-    }
-
-
-    // Write out the data chunk
-    if (writeChunkLocationFromInputFileToOutputFile(dataChunkLocation, inputFile, outputFile) < 0)
-    {
-        returnCode = -1;
-        goto CleanUpAndExit;
-    }
-    if (dataChunkLocation.size % 2 != 0)
-    {
-        if (fwrite("\0", sizeof(char), 1, outputFile) < 1)
-        {
-            fprintf(stderr, "Error writing padding character to output file.\n");
-            returnCode = -1;
-            goto CleanUpAndExit;
-
-        }
     }
 
 
@@ -707,6 +588,124 @@ CueLocations readCueLocationsFromMarkerFile(FILE *markersFile)
     return cueLocations;
 }
 
+int writeOutputFile(FILE *inputFile, FILE *outputFile, ChunkLocation formatChunkExtraBytes, ChunkLocation dataChunkLocation, int otherChunksCount, ChunkLocation *otherChunkLocations, CueLocations cueLocations, WaveHeader *waveHeader, FormatChunk *formatChunk, CueChunk cueChunk, CuePoint *cuePoints)
+{
+    fprintf(stdout, "Writing output file.\n");
+
+    // Update the file header chunk to have the new data size
+    uint32_t fileDataSize = 0;
+    fileDataSize += 4; // the 4 bytes for the Riff Type "WAVE"
+    fileDataSize += sizeof(FormatChunk);
+    fileDataSize += formatChunkExtraBytes.size;
+    if (formatChunkExtraBytes.size % 2 != 0)
+    {
+        fileDataSize++; // Padding byte for 2byte alignment
+    }
+
+    fileDataSize += dataChunkLocation.size;
+    if (dataChunkLocation.size % 2 != 0)
+    {
+        fileDataSize++;
+    }
+
+    for (int i = 0; i < otherChunksCount; i++)
+    {
+        fileDataSize += otherChunkLocations[i].size;
+        if (otherChunkLocations[i].size % 2 != 0)
+        {
+            fileDataSize ++;
+        }
+    }
+    fileDataSize += 4; // 4 bytes for CueChunk ID "cue "
+    fileDataSize += 4; // UInt32 for CueChunk.chunkDataSize
+    fileDataSize += 4; // UInt32 for CueChunk.cuePointsCount
+    fileDataSize += (sizeof(CuePoint) * cueLocations.count);
+
+    uint32ToLittleEndianBytes(fileDataSize, waveHeader->dataSize);
+
+    // Write out the header to the new file
+    if (fwrite(waveHeader, sizeof(*waveHeader), 1, outputFile) < 1)
+    {
+        fprintf(stderr, "Error writing header to output file.\n");
+        return -1;
+    }
+
+
+    // Write out the format chunk
+    if (fwrite(formatChunk, sizeof(FormatChunk), 1, outputFile) < 1)
+    {
+        fprintf(stderr, "Error writing format chunk to output file.\n");
+        return -1;
+    }
+    else if (formatChunkExtraBytes.size > 0)
+    {
+        if (writeChunkLocationFromInputFileToOutputFile(formatChunkExtraBytes, inputFile, outputFile) < 0)
+        {
+            return -1;
+        }
+        if (formatChunkExtraBytes.size % 2 != 0)
+        {
+            if (fwrite("\0", sizeof(char), 1, outputFile) < 1)
+            {
+                fprintf(stderr, "Error writing padding character to output file.\n");
+                return -1;
+            }
+        }
+    }
+
+
+    // Write out the start of new Cue Chunk: chunkID, dataSize and cuePointsCount
+    if (fwrite(&cueChunk, sizeof(cueChunk.chunkID) + sizeof(cueChunk.chunkDataSize)+ sizeof(cueChunk.cuePointsCount), 1, outputFile) < 1)
+    {
+        fprintf(stderr, "Error writing cue chunk header to output file.\n");
+        return -1;
+    }
+
+    // Write out the Cue Points
+    for (uint32_t i = 0; i < littleEndianBytesToUInt32(cueChunk.cuePointsCount); i++)
+    {
+        if (fwrite(&(cuePoints[i]), sizeof(CuePoint), 1, outputFile) < 1)
+        {
+            fprintf(stderr, "Error writing cue point to output file.\n");
+            return -1;
+        }
+    }
+
+
+    // Write out the other chunks from the input file
+    for (int i = 0; i < otherChunksCount; i++)
+    {
+        if (writeChunkLocationFromInputFileToOutputFile(otherChunkLocations[i], inputFile, outputFile) < 0)
+        {
+            return -1;
+        }
+        if (otherChunkLocations[i].size % 2 != 0)
+        {
+            if (fwrite("\0", sizeof(char), 1, outputFile) < 1)
+            {
+                fprintf(stderr, "Error writing padding character to output file.\n");
+                return -1;
+            }
+        }
+    }
+
+
+    // Write out the data chunk
+    if (writeChunkLocationFromInputFileToOutputFile(dataChunkLocation, inputFile, outputFile) < 0)
+    {
+        return -1;
+    }
+    if (dataChunkLocation.size % 2 != 0)
+    {
+        if (fwrite("\0", sizeof(char), 1, outputFile) < 1)
+        {
+            fprintf(stderr, "Error writing padding character to output file.\n");
+            return -1;
+        }
+    }
+
+    return 0;
+}
 
 int writeChunkLocationFromInputFileToOutputFile(ChunkLocation chunk, FILE *inputFile, FILE *outputFile)
 {
