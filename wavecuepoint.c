@@ -71,16 +71,16 @@ typedef struct {
 // so this struct just stores positions of such chunks in the input file
 typedef struct {
     long startOffset; // in bytes
-    long size;        // in bytes
+    size_t size;      // in bytes
 } ChunkLocation;
 
 typedef struct {
     uint32_t locations[1000];
-    int count;
+    uint32_t count;
 } CueLocations;
 CueLocations readCueLocationsFromMarkerFile(FILE *markerFile);
 
-int writeOutputFile(FILE *inputFile, FILE *outputFile, ChunkLocation formatChunkExtraBytes, ChunkLocation dataChunkLocation, int otherChunksCount, ChunkLocation *otherChunkLocations, CueLocations cueLocations, WaveHeader *waveHeader, FormatChunk *formatChunk, CueChunk cueChunk, CuePoint *cuePoints);
+int writeOutputFile(FILE *inputFile, FILE *outputFile, ChunkLocation formatChunkExtraBytes, ChunkLocation dataChunkLocation, int otherChunksCount, ChunkLocation *otherChunkLocations, CueLocations cueLocations, WaveHeader *waveHeader, FormatChunk *formatChunk, CueChunk cueChunk);
 
 // For such chunks that we will copy over from input to output, this function does that in 1MB pieces
 int writeChunkLocationFromInputFileToOutputFile(ChunkLocation chunk, FILE *inputFile, FILE *outputFile);
@@ -98,7 +98,7 @@ enum HostEndiannessType {
 
 static enum HostEndiannessType HostEndianness = EndiannessUndefined;
 
-enum HostEndiannessType getHostEndianness();
+enum HostEndiannessType getHostEndianness(void);
 uint32_t littleEndianBytesToUInt32(char littleEndianBytes[4]);
 void uint32ToLittleEndianBytes(uint32_t uInt32Value, char out_LittleEndianBytes[4]);
 uint16_t littleEndianBytesToUInt16(char littleEndianBytes[2]);
@@ -113,7 +113,7 @@ enum CuePointMergingOption {
     ReplaceAnyExistingCuePoints
 };
 
-int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePath, enum CuePointMergingOption mergeOption)
+static int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePath, enum CuePointMergingOption mergeOption)
 {
 
     int returnCode = 0;
@@ -123,16 +123,24 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
     WaveHeader      *waveHeader           = NULL;
     FormatChunk     *formatChunk          = NULL;
     ChunkLocation   formatChunkExtraBytes = {0,0};
-    CueChunk        existingCueChunk      = {{0}};
-    existingCueChunk.cuePoints            = NULL;
+    CueChunk        existingCueChunk      = {
+        .chunkID        = {0},
+        .chunkDataSize  = {0},
+        .cuePointsCount = {0},
+        .cuePoints      = NULL
+    };
     ChunkLocation   dataChunkLocation     = {0,0};
     const int       maxOtherChunks        = 256;   // How many other chunks can we expect to find?  Who knows! So lets pull 256 out of the air.  That's a nice computery number.
     int             otherChunksCount      = 0;
     ChunkLocation   otherChunkLocations[maxOtherChunks];
 
     FILE            *markersFile          = NULL;
-    CuePoint        *cuePoints            = NULL;
-    CueChunk        cueChunk              = {{0}};
+    CueChunk        cueChunk              = {
+        .chunkID        = {0},
+        .chunkDataSize  = {0},
+        .cuePointsCount = {0},
+        .cuePoints      = NULL
+    };
 
     FILE            *outputFile           = NULL;
 
@@ -280,7 +288,7 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
         else if (strncmp(&nextChunkID[0], "data", 4) == 0)
         {
             // We found the data chunk
-            dataChunkLocation.startOffset = ftell(inputFile) - sizeof(nextChunkID);
+            dataChunkLocation.startOffset = ftell(inputFile) - (long)sizeof(nextChunkID);
 
             // The next 4 bytes are the chunk data size - the size of the sample data
             char sampleDataSizeBytes[4];
@@ -331,10 +339,16 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
             uint32_t cuePointsCount = littleEndianBytesToUInt16(cuePointsCountBytes);
 
             // Read in the existing cue points into CuePoint Structs
-            CuePoint *existingCuePoints = (CuePoint *)malloc(sizeof(CuePoint) * cuePointsCount);
+            if (existingCueChunk.cuePoints)
+            {
+                fprintf(stderr, "Multiple existing Cue chunks found!\n");
+                returnCode = -1;
+                goto CleanUpAndExit;
+            }
+            existingCueChunk.cuePoints = (CuePoint *)malloc(sizeof(CuePoint) * cuePointsCount);
             for (uint32_t cuePointIndex = 0; cuePointIndex < cuePointsCount; cuePointIndex++)
             {
-                fread(&existingCuePoints[cuePointIndex], sizeof(CuePoint), 1, inputFile);
+                fread(&existingCueChunk.cuePoints[cuePointIndex], sizeof(CuePoint), 1, inputFile);
                 if (ferror(inputFile) != 0)
                 {
                     fprintf(stderr, "Error reading input file %s\n", inFilePath);
@@ -350,7 +364,6 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
             existingCueChunk.chunkID[3] = ' ';
             uint32ToLittleEndianBytes(cueChunkDataSize, existingCueChunk.chunkDataSize);
             uint32ToLittleEndianBytes(cuePointsCount, existingCueChunk.cuePointsCount);
-            existingCueChunk.cuePoints = existingCuePoints;
 
             printf("Found Existing Cue Chunk\n");
         }
@@ -366,7 +379,7 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
                 goto CleanUpAndExit;
             }
 
-            otherChunkLocations[otherChunksCount].startOffset = ftell(inputFile) - sizeof(nextChunkID);
+            otherChunkLocations[otherChunksCount].startOffset = ftell(inputFile) - (long)sizeof(nextChunkID);
 
             char chunkDataSizeBytes[4] = {0};
             fread(chunkDataSizeBytes, sizeof(char), 4, inputFile);
@@ -422,8 +435,8 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
 
 
     // Create CuePointStructs for each cue location
-    cuePoints = malloc(sizeof(CuePoint) * cueLocations.count);
-    if (cuePoints == NULL)
+    cueChunk.cuePoints = malloc(sizeof(CuePoint) * cueLocations.count);
+    if (cueChunk.cuePoints == NULL)
     {
         fprintf(stderr, "Memory Allocation Error: Could not allocate memory for Cue Points data\n");
         returnCode = -1;
@@ -435,15 +448,15 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
 
     for (uint32_t i = 0; i < cueLocations.count; i++)
     {
-        uint32ToLittleEndianBytes(i + 1, cuePoints[i].cuePointID);
-        uint32ToLittleEndianBytes(cueLocations.locations[i], cuePoints[i].playOrderPosition);
-        cuePoints[i].dataChunkID[0] = 'd';
-        cuePoints[i].dataChunkID[1] = 'a';
-        cuePoints[i].dataChunkID[2] = 't';
-        cuePoints[i].dataChunkID[3] = 'a';
-        uint32ToLittleEndianBytes(0, cuePoints[i].chunkStart);
-        uint32ToLittleEndianBytes(0, cuePoints[i].blockStart);
-        uint32ToLittleEndianBytes(cueLocations.locations[i], cuePoints[i].frameOffset);
+        uint32ToLittleEndianBytes(i + 1, cueChunk.cuePoints[i].cuePointID);
+        uint32ToLittleEndianBytes(cueLocations.locations[i], cueChunk.cuePoints[i].playOrderPosition);
+        cueChunk.cuePoints[i].dataChunkID[0] = 'd';
+        cueChunk.cuePoints[i].dataChunkID[1] = 'a';
+        cueChunk.cuePoints[i].dataChunkID[2] = 't';
+        cueChunk.cuePoints[i].dataChunkID[3] = 'a';
+        uint32ToLittleEndianBytes(0, cueChunk.cuePoints[i].chunkStart);
+        uint32ToLittleEndianBytes(0, cueChunk.cuePoints[i].blockStart);
+        uint32ToLittleEndianBytes(cueLocations.locations[i], cueChunk.cuePoints[i].frameOffset);
     }
 
 
@@ -461,7 +474,6 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
     cueChunk.chunkID[3] = ' ';
     uint32ToLittleEndianBytes(4 + (sizeof(CuePoint) * cueLocations.count), cueChunk.chunkDataSize);// See struct definition
     uint32ToLittleEndianBytes(cueLocations.count, cueChunk.cuePointsCount);
-    cueChunk.cuePoints = cuePoints;
 
 
 
@@ -475,7 +487,7 @@ int addMarkersToWaveFile(char *inFilePath, char *markerFilePath, char *outFilePa
         goto CleanUpAndExit;
     }
 
-    returnCode = writeOutputFile(inputFile, outputFile, formatChunkExtraBytes, dataChunkLocation, otherChunksCount, otherChunkLocations, cueLocations, waveHeader, formatChunk, cueChunk, cuePoints);
+    returnCode = writeOutputFile(inputFile, outputFile, formatChunkExtraBytes, dataChunkLocation, otherChunksCount, otherChunkLocations, cueLocations, waveHeader, formatChunk, cueChunk);
     if (returnCode < 0)
     {
         goto CleanUpAndExit;
@@ -492,7 +504,7 @@ CleanUpAndExit:
     if (formatChunk != NULL) free(formatChunk);
     if (existingCueChunk.cuePoints != NULL) free(existingCueChunk.cuePoints);
     if (markersFile != NULL) fclose(markersFile);
-    if (cuePoints != NULL) free(cuePoints);
+    if (cueChunk.cuePoints != NULL) free(cueChunk.cuePoints);
     if (outputFile != NULL) fclose(outputFile);
 
     return returnCode;
@@ -516,7 +528,7 @@ CueLocations readCueLocationsFromMarkerFile(FILE *markersFile)
         // Loop through each line in the markers file
         while (1)
         {
-            char nextChar = fgetc(markersFile);
+            int nextChar = fgetc(markersFile);
 
             // check for end of file
             if (feof(markersFile))
@@ -530,7 +542,7 @@ CueLocations readCueLocationsFromMarkerFile(FILE *markersFile)
             {
                 // This is a Classic Mac line ending '\r' or the start of a Windows line ending '\r\n'
                 // If this is the start of a '\r\n', gobble up the '\n' too
-                char peekAheadChar = fgetc(markersFile);
+                int peekAheadChar = fgetc(markersFile);
                 if ((peekAheadChar != EOF) && (peekAheadChar != '\n'))
                 {
                     ungetc(peekAheadChar, markersFile);
@@ -553,7 +565,7 @@ CueLocations readCueLocationsFromMarkerFile(FILE *markersFile)
                 // More than 10 digits is too much for a 32bit unsigned integer, so ignore this character and spin through the loop until we hit EOL or EOF
                 if (charIndex < 10)
                 {
-                    cueLocationString[charIndex] = nextChar;
+                    cueLocationString[charIndex] = (char)nextChar;
                     charIndex++;
                 }
                 else
@@ -588,7 +600,7 @@ CueLocations readCueLocationsFromMarkerFile(FILE *markersFile)
     return cueLocations;
 }
 
-int writeOutputFile(FILE *inputFile, FILE *outputFile, ChunkLocation formatChunkExtraBytes, ChunkLocation dataChunkLocation, int otherChunksCount, ChunkLocation *otherChunkLocations, CueLocations cueLocations, WaveHeader *waveHeader, FormatChunk *formatChunk, CueChunk cueChunk, CuePoint *cuePoints)
+int writeOutputFile(FILE *inputFile, FILE *outputFile, ChunkLocation formatChunkExtraBytes, ChunkLocation dataChunkLocation, int otherChunksCount, ChunkLocation *otherChunkLocations, CueLocations cueLocations, WaveHeader *waveHeader, FormatChunk *formatChunk, CueChunk cueChunk)
 {
     fprintf(stdout, "Writing output file.\n");
 
@@ -664,7 +676,7 @@ int writeOutputFile(FILE *inputFile, FILE *outputFile, ChunkLocation formatChunk
     // Write out the Cue Points
     for (uint32_t i = 0; i < littleEndianBytesToUInt32(cueChunk.cuePointsCount); i++)
     {
-        if (fwrite(&(cuePoints[i]), sizeof(CuePoint), 1, outputFile) < 1)
+        if (fwrite(&(cueChunk.cuePoints[i]), sizeof(CuePoint), 1, outputFile) < 1)
         {
             fprintf(stderr, "Error writing cue point to output file.\n");
             return -1;
@@ -718,7 +730,7 @@ int writeChunkLocationFromInputFileToOutputFile(ChunkLocation chunk, FILE *input
         return -1;
     }
 
-    long remainingBytesToWrite = chunk.size;
+    size_t remainingBytesToWrite = chunk.size;
     while (remainingBytesToWrite >=1024)
     {
         char buffer[1024];
@@ -840,7 +852,7 @@ uint16_t littleEndianBytesToUInt16(char littleEndianBytes[2])
         HostEndianness = getHostEndianness();
     }
     
-    uint32_t uInt16Value;
+    uint16_t uInt16Value;
     char *uintValueBytes = (char *)&uInt16Value;
 
     if (HostEndianness == LittleEndian)
